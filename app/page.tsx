@@ -13,7 +13,7 @@ export default function Home() {
       video.src = URL.createObjectURL(videoFile);
 
       video.onloadedmetadata = () => {
-        video.currentTime = Math.min(2, video.duration / 2);
+        video.currentTime = 1;
       };
 
       video.onseeked = () => {
@@ -41,16 +41,20 @@ export default function Home() {
     let fileToSend = file;
 
     if (file.type.startsWith('video/')) {
-      fileToSend = await extractFrame(file); // back to 1 frame (stable)
+      fileToSend = await extractFrame(file);
     }
 
     const formData = new FormData();
     formData.append('file', fileToSend);
 
     try {
+      const controller = new AbortController();
+      setTimeout(() => controller.abort(), 15000);
+
       const res = await fetch('/api/verify', {
         method: 'POST',
         body: formData,
+        signal: controller.signal,
       });
 
       const data = await res.json();
@@ -58,7 +62,7 @@ export default function Home() {
       setRiskScore(data.riskScore);
       setExplanation(data.explanation);
     } catch {
-      setExplanation("Request failed");
+      setExplanation('Request failed or timed out');
     }
 
     setLoading(false);
@@ -89,7 +93,7 @@ export default function Home() {
           <div className="text-8xl font-bold mb-3">{riskScore}%</div>
 
           <div className={`text-4xl font-bold ${riskScore > 60 ? 'text-red-500' : 'text-green-500'}`}>
-            {riskScore > 60 ? 'HIGH RISK' : 'LOW RISK'}
+            {riskScore > 60 ? 'HIGH RISK — Likely Deepfake' : 'LOW RISK — Probably Real'}
           </div>
 
           <p className="mt-8 text-xl">{explanation}</p>
