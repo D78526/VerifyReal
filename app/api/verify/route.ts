@@ -8,7 +8,7 @@ export async function POST(req: Request) {
     if (!file) {
       return NextResponse.json({
         riskScore: 0,
-        explanation: "No file received"
+        explanation: "No file uploaded"
       });
     }
 
@@ -17,11 +17,11 @@ export async function POST(req: Request) {
     if (!HF_TOKEN) {
       return NextResponse.json({
         riskScore: 0,
-        explanation: "Missing HF_TOKEN in Vercel"
+        explanation: "Missing HF token"
       });
     }
 
-    const buffer = await file.arrayBuffer();
+    const base64 = Buffer.from(await file.arrayBuffer()).toString("base64");
 
     const response = await fetch(
       "https://api-inference.huggingface.co/models/dima806/deepfake_vs_real_image_detection",
@@ -29,23 +29,15 @@ export async function POST(req: Request) {
         method: "POST",
         headers: {
           Authorization: `Bearer ${HF_TOKEN}`,
-          "Content-Type": file.type || "application/octet-stream"
+          "Content-Type": "application/json",
         },
-        body: buffer,
+        body: JSON.stringify({
+          inputs: base64
+        }),
       }
     );
 
-    const text = await response.text();
-
-    let data;
-    try {
-      data = JSON.parse(text);
-    } catch {
-      return NextResponse.json({
-        riskScore: 0,
-        explanation: "HF returned non-JSON: " + text.slice(0, 100)
-      });
-    }
+    const data = await response.json();
 
     let risk = 50;
 
@@ -66,13 +58,13 @@ export async function POST(req: Request) {
 
     return NextResponse.json({
       riskScore: risk,
-      explanation: `Result: ${risk}%`
+      explanation: `AI result: ${risk}% deepfake probability`
     });
 
   } catch (err: any) {
     return NextResponse.json({
       riskScore: 0,
-      explanation: "SERVER CRASH: " + err.message
+      explanation: "Server crash: " + err.message
     });
   }
 }
