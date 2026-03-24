@@ -24,7 +24,7 @@ export async function POST(req: Request) {
     const base64 = Buffer.from(await file.arrayBuffer()).toString("base64");
 
     const response = await fetch(
-      "https://api-inference.huggingface.co/models/dima806/deepfake_vs_real_image_detection",
+      "https://router.huggingface.co/hf-inference/models/dima806/deepfake_vs_real_image_detection",
       {
         method: "POST",
         headers: {
