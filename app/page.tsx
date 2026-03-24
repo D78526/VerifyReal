@@ -1,65 +1,95 @@
-import Image from "next/image";
+'use client';
+import { useState } from 'react';
 
 export default function Home() {
+  const [file, setFile] = useState<File | null>(null);
+  const [riskScore, setRiskScore] = useState<number | null>(null);
+  const [explanation, setExplanation] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const extractMiddleFrame = (videoFile: File): Promise<File> => {
+    return new Promise((resolve) => {
+      const video = document.createElement('video');
+      video.src = URL.createObjectURL(videoFile);
+
+      video.onloadedmetadata = () => {
+        video.currentTime = video.duration * 0.3;
+
+        video.onseeked = () => {
+          const canvas = document.createElement('canvas');
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+
+          const ctx = canvas.getContext('2d')!;
+          ctx.drawImage(video, 0, 0);
+
+          canvas.toBlob((blob) => {
+            if (blob) resolve(new File([blob], 'frame.jpg', { type: 'image/jpeg' }));
+          });
+        };
+      };
+    });
+  };
+
+  const handleUpload = async () => {
+    if (!file) return;
+
+    setLoading(true);
+    setRiskScore(null);
+    setExplanation('');
+
+    let fileToSend = file;
+
+    if (file.type.startsWith('video/')) {
+      fileToSend = await extractMiddleFrame(file);
+    }
+
+    const formData = new FormData();
+    formData.append('file', fileToSend);
+
+    const res = await fetch('/api/verify', {
+      method: 'POST',
+      body: formData,
+    });
+
+    const data = await res.json();
+
+    setRiskScore(data.riskScore);
+    setExplanation(data.explanation);
+    setLoading(false);
+  };
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <div className="min-h-screen bg-black text-white p-8 font-sans">
+      <h1 className="text-6xl font-bold text-center mb-4">VerifyReal ✓</h1>
+      <p className="text-center text-2xl mb-12">Deepfake Risk Score 0–100%</p>
+
+      <input
+        type="file"
+        accept="image/*,video/*"
+        onChange={(e) => setFile(e.target.files?.[0] || null)}
+        className="block mx-auto mb-8 text-lg"
+      />
+
+      <button
+        onClick={handleUpload}
+        disabled={loading || !file}
+        className="bg-green-600 px-12 py-6 rounded-2xl text-2xl mx-auto block font-bold"
+      >
+        {loading ? 'Running ensemble AI analysis...' : 'Get Risk Score'}
+      </button>
+
+      {riskScore !== null && (
+        <div className="mt-16 text-center max-w-md mx-auto">
+          <div className="text-8xl font-bold mb-3">{riskScore}%</div>
+
+          <div className={`text-4xl font-bold ${riskScore > 60 ? 'text-red-500' : 'text-green-500'}`}>
+            {riskScore > 60 ? 'HIGH RISK' : 'LOW RISK'}
+          </div>
+
+          <p className="mt-8 text-xl">{explanation}</p>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
+      )}
     </div>
   );
 }
