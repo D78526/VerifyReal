@@ -7,43 +7,26 @@ export default function Home() {
   const [explanation, setExplanation] = useState('');
   const [loading, setLoading] = useState(false);
 
-  // Extract 3 frames from video
-  const extractFrames = (videoFile: File): Promise<File[]> => {
+  const extractFrame = (videoFile: File): Promise<File> => {
     return new Promise((resolve) => {
       const video = document.createElement('video');
       video.src = URL.createObjectURL(videoFile);
 
-      video.onloadedmetadata = async () => {
-        const times = [
-          video.duration * 0.2,
-          video.duration * 0.5,
-          video.duration * 0.8
-        ];
+      video.onloadedmetadata = () => {
+        video.currentTime = Math.min(2, video.duration / 2);
+      };
 
-        const frames: File[] = [];
+      video.onseeked = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
 
-        for (let t of times) {
-          await new Promise<void>((res) => {
-            video.currentTime = t;
-            video.onseeked = () => {
-              const canvas = document.createElement('canvas');
-              canvas.width = video.videoWidth;
-              canvas.height = video.videoHeight;
+        const ctx = canvas.getContext('2d')!;
+        ctx.drawImage(video, 0, 0);
 
-              const ctx = canvas.getContext('2d')!;
-              ctx.drawImage(video, 0, 0);
-
-              canvas.toBlob((blob) => {
-                if (blob) {
-                  frames.push(new File([blob], `frame-${t}.jpg`, { type: 'image/jpeg' }));
-                }
-                res();
-              });
-            };
-          });
-        }
-
-        resolve(frames);
+        canvas.toBlob((blob) => {
+          if (blob) resolve(new File([blob], 'frame.jpg', { type: 'image/jpeg' }));
+        });
       };
     });
   };
@@ -55,27 +38,29 @@ export default function Home() {
     setRiskScore(null);
     setExplanation('');
 
-    let filesToSend: File[] = [file];
+    let fileToSend = file;
 
     if (file.type.startsWith('video/')) {
-      filesToSend = await extractFrames(file);
+      fileToSend = await extractFrame(file); // back to 1 frame (stable)
     }
 
     const formData = new FormData();
+    formData.append('file', fileToSend);
 
-    filesToSend.forEach((f, i) => {
-      formData.append(`file${i}`, f);
-    });
+    try {
+      const res = await fetch('/api/verify', {
+        method: 'POST',
+        body: formData,
+      });
 
-    const res = await fetch('/api/verify', {
-      method: 'POST',
-      body: formData,
-    });
+      const data = await res.json();
 
-    const data = await res.json();
+      setRiskScore(data.riskScore);
+      setExplanation(data.explanation);
+    } catch {
+      setExplanation("Request failed");
+    }
 
-    setRiskScore(data.riskScore);
-    setExplanation(data.explanation);
     setLoading(false);
   };
 
@@ -96,7 +81,7 @@ export default function Home() {
         disabled={loading || !file}
         className="bg-green-600 px-12 py-6 rounded-2xl text-2xl mx-auto block font-bold"
       >
-        {loading ? 'Running ensemble AI analysis...' : 'Get Risk Score'}
+        {loading ? 'Analyzing...' : 'Get Risk Score'}
       </button>
 
       {riskScore !== null && (
@@ -104,20 +89,10 @@ export default function Home() {
           <div className="text-8xl font-bold mb-3">{riskScore}%</div>
 
           <div className={`text-4xl font-bold ${riskScore > 60 ? 'text-red-500' : 'text-green-500'}`}>
-            {riskScore > 60 ? 'HIGH RISK — Likely Deepfake' : 'LOW RISK — Probably Real'}
+            {riskScore > 60 ? 'HIGH RISK' : 'LOW RISK'}
           </div>
 
           <p className="mt-8 text-xl">{explanation}</p>
-
-          <button
-            onClick={() => {
-              const text = `Verified with VerifyReal — Risk Score ${riskScore}%`;
-              window.open(`https://x.com/intent/tweet?text=${encodeURIComponent(text)}`);
-            }}
-            className="mt-10 bg-blue-600 px-8 py-4 rounded-xl text-lg"
-          >
-            Share Result
-          </button>
         </div>
       )}
     </div>
