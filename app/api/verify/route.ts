@@ -1,57 +1,7 @@
 import { NextResponse } from 'next/server';
 
-export const runtime = 'nodejs';
-
-async function fetchWithTimeout(url: string, options: any, timeout = 12000) {
-  return Promise.race([
-    fetch(url, options),
-    new Promise((_, reject) =>
-      setTimeout(() => reject(new Error('Timeout')), timeout)
-    )
-  ]);
-}
-
-async function queryModel(url: string, token: string, buffer: ArrayBuffer, type: string) {
-  try {
-    const res: any = await fetchWithTimeout(url, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": type || "application/octet-stream",
-      },
-      body: buffer,
-    });
-
-    const text = await res.text();
-
-    try {
-      return JSON.parse(text);
-    } catch {
-      return null;
-    }
-  } catch {
-    return null;
-  }
-}
-
-function extractRisk(data: any): number | null {
-  if (!data || !Array.isArray(data)) return null;
-
-  let results = data;
-  if (Array.isArray(data[0])) results = data[0];
-
-  const fake = results.find((r: any) =>
-    r.label?.toLowerCase().includes("fake")
-  );
-
-  if (fake) return fake.score * 100;
-
-  const top = results.reduce((a: any, b: any) =>
-    a.score > b.score ? a : b
-  );
-
-  return (1 - top.score) * 100;
-}
+const HF_TOKEN = process.env.HF_TOKEN!;
+const MODEL = "umm-maybe/AI-image-detector"; // you can swap later
 
 export async function POST(req: Request) {
   try {
@@ -59,90 +9,79 @@ export async function POST(req: Request) {
     const file = formData.get('file') as File;
 
     if (!file) {
-      return NextResponse.json({ error: "No file uploaded" }, { status: 400 });
+      return NextResponse.json({ error: 'No file uploaded' }, { status: 400 });
     }
 
-    const token = process.env.HF_TOKEN;
-    if (!token) {
-      return NextResponse.json({ error: "Missing HF token" }, { status: 500 });
+    const bytes = await file.arrayBuffer();
+
+    // 🔥 send RAW binary (no base64)
+    const res = await fetch(
+      `https://router.huggingface.co/hf-inference/models/${MODEL}`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${HF_TOKEN}`,
+          "Content-Type": "application/octet-stream",
+        },
+        body: bytes,
+      }
+    );
+
+    const text = await res.text();
+
+    let parsed;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      return NextResponse.json({
+        error: "HF returned non-JSON",
+        raw: text.slice(0, 200),
+      });
     }
 
-    const buffer = await file.arrayBuffer();
-    const type = file.type;
-
-    const [m1, m2] = await Promise.all([
-      queryModel(
-        "https://router.huggingface.co/hf-inference/models/dima806/deepfake_vs_real_image_detection",
-        token,
-        buffer,
-        type
-      ),
-      queryModel(
-        "https://router.huggingface.co/hf-inference/models/prithivMLmods/Deep-Fake-Detector-Model",
-        token,
-        buffer,
-        type
-      )
-    ]);
-
-    const r1 = extractRisk(m1);
-    const r2 = extractRisk(m2);
-
-    // 🧠 GOD MODE SCORING
-    let signals: number[] = [];
-
-    if (r1 !== null) signals.push(r1);
-    if (r2 !== null) signals.push(r2);
-
-    let avg = signals.length
-      ? signals.reduce((a, b) => a + b, 0) / signals.length
-      : 50;
-
-    let peak = signals.length ? Math.max(...signals) : 50;
-    let spread =
-      signals.length > 1 ? Math.abs(signals[0] - signals[1]) : 0;
-
-    let finalRisk = avg * 0.5 + peak * 0.5;
-
-    if (peak > 75) {
-      finalRisk = peak;
+    if (!Array.isArray(parsed)) {
+      return NextResponse.json({ error: "Invalid HF response", parsed });
     }
 
-    if (spread > 40) {
-      finalRisk += 10;
+    const scores = parsed.map((p: any) => p.score || 0);
+
+    const max = Math.max(...scores);
+    const avg = scores.reduce((a, b) => a + b, 0) / scores.length;
+
+    let riskScore = (max * 0.7 + avg * 0.3) * 100;
+
+    // 🔥 variance boost (detect "too perfect")
+    const variance =
+      scores.reduce((a, s) => a + Math.pow(s - avg, 2), 0) / scores.length;
+
+    if (variance < 0.01 && avg < 0.3) {
+      riskScore += 20;
     }
 
-    if (finalRisk < 25 && peak > 40) {
-      finalRisk = peak * 0.7;
-    }
+    // 🔥 boost weak detections
+    if (riskScore < 20) riskScore *= 2.5;
+    if (riskScore < 40) riskScore *= 1.5;
 
-    if (finalRisk < 30 && avg < 25) {
-      finalRisk *= 0.85;
-    }
+    riskScore = Math.min(100, Math.round(riskScore));
 
-    finalRisk = Math.min(100, Math.round(finalRisk));
-
-    let verdict = "";
-
-    if (finalRisk > 80) {
-      verdict = "CRITICAL — AI GENERATED";
-    } else if (finalRisk > 60) {
-      verdict = "HIGH RISK — Synthetic Media";
-    } else if (finalRisk > 40) {
-      verdict = "UNCERTAIN — Needs Verification";
-    } else {
-      verdict = "LOW RISK — Likely Real";
-    }
+    let verdict = "Likely Real";
+    if (riskScore > 75) verdict = "High Risk AI";
+    else if (riskScore > 50) verdict = "Possible AI";
+    else if (riskScore > 25) verdict = "Suspicious";
 
     return NextResponse.json({
-      riskScore: finalRisk,
+      riskScore,
       verdict,
-      confidence: "Multi-model AI analysis"
+      details: [
+        `Peak anomaly: ${Math.round(max * 100)}%`,
+        `Average signal: ${Math.round(avg * 100)}%`,
+        `Consistency: ${Math.round((1 - variance) * 100)}%`,
+      ],
     });
-
   } catch (err: any) {
     return NextResponse.json({
-      error: err.message || "Server error"
-    }, { status: 500 });
+      error: "Server crash",
+      message: err.message,
+    });
   }
 }
