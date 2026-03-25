@@ -17,7 +17,7 @@ async function queryModel(url: string, token: string, buffer: ArrayBuffer, type:
   try {
     return JSON.parse(text);
   } catch {
-    return { error: "Non-JSON", raw: text };
+    return { error: true };
   }
 }
 
@@ -25,10 +25,7 @@ function extractRisk(data: any): number {
   if (!Array.isArray(data)) return 50;
 
   let results = data;
-
-  if (Array.isArray(data[0])) {
-    results = data[0];
-  }
+  if (Array.isArray(data[0])) results = data[0];
 
   const fake = results.find((r: any) =>
     r.label?.toLowerCase().includes("fake")
@@ -49,61 +46,67 @@ export async function POST(req: Request) {
     const file = formData.get('file') as File;
 
     if (!file) {
-      return NextResponse.json({ riskScore: 0, explanation: "No file" });
+      return NextResponse.json({ riskScore: 0, explanation: "No file uploaded" });
     }
 
-    const HF_TOKEN = process.env.HF_TOKEN;
-
-    if (!HF_TOKEN) {
-      return NextResponse.json({ riskScore: 0, explanation: "Missing token" });
+    const token = process.env.HF_TOKEN;
+    if (!token) {
+      return NextResponse.json({ riskScore: 0, explanation: "Server not configured" });
     }
 
     const buffer = await file.arrayBuffer();
     const type = file.type;
 
-    // 🔥 MODEL 1
-    const model1 = await queryModel(
+    const m1 = await queryModel(
       "https://router.huggingface.co/hf-inference/models/dima806/deepfake_vs_real_image_detection",
-      HF_TOKEN,
+      token,
       buffer,
       type
     );
 
-    // 🔥 MODEL 2 (different model = better accuracy)
-    const model2 = await queryModel(
+    const m2 = await queryModel(
       "https://router.huggingface.co/hf-inference/models/prithivMLmods/Deep-Fake-Detector-Model",
-      HF_TOKEN,
+      token,
       buffer,
       type
     );
 
-    if (model1.error && model2.error) {
-      return NextResponse.json({
-        riskScore: 0,
-        explanation: "Both models failed"
-      });
-    }
+    const r1 = extractRisk(m1);
+    const r2 = extractRisk(m2);
 
-    const r1 = extractRisk(model1);
-    const r2 = extractRisk(model2);
-
-    // 🔥 SMART COMBINATION
     let finalRisk = Math.round((r1 * 0.6) + (r2 * 0.4));
 
-    // bias toward safety (if one is high, increase)
     if (r1 > 70 || r2 > 70) {
       finalRisk = Math.max(r1, r2);
     }
 
+    // ✅ HUMAN-FRIENDLY RESULT
+    let message = "";
+    let confidence = "";
+
+    if (finalRisk > 75) {
+      message = "High likelihood of manipulation";
+      confidence = "High confidence";
+    } else if (finalRisk > 55) {
+      message = "Possible manipulation detected";
+      confidence = "Medium confidence";
+    } else if (finalRisk > 35) {
+      message = "Uncertain result";
+      confidence = "Low confidence";
+    } else {
+      message = "Likely authentic content";
+      confidence = "High confidence";
+    }
+
     return NextResponse.json({
       riskScore: finalRisk,
-      explanation: `Model A: ${Math.round(r1)}% | Model B: ${Math.round(r2)}%`
+      explanation: `${message} • ${confidence}`
     });
 
   } catch (err: any) {
     return NextResponse.json({
       riskScore: 0,
-      explanation: "Server crash: " + err.message
+      explanation: "System error"
     });
   }
 }
