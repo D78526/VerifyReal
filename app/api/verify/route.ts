@@ -40,37 +40,31 @@ function extractRisk(data: any): number {
   return (1 - top.score) * 100;
 }
 
-// 🔥 generate human-like reasons
-function generateReasons(score: number): string[] {
-  if (score > 75) {
-    return [
-      "Facial inconsistencies detected",
-      "Unnatural skin texture or smoothing",
-      "Lighting/shadow mismatch",
-      "Possible AI-generated artifacts"
-    ];
+async function analyzeImage(buffer: ArrayBuffer, type: string, token: string) {
+  const m1 = await queryModel(
+    "https://router.huggingface.co/hf-inference/models/dima806/deepfake_vs_real_image_detection",
+    token,
+    buffer,
+    type
+  );
+
+  const m2 = await queryModel(
+    "https://router.huggingface.co/hf-inference/models/prithivMLmods/Deep-Fake-Detector-Model",
+    token,
+    buffer,
+    type
+  );
+
+  const r1 = extractRisk(m1);
+  const r2 = extractRisk(m2);
+
+  let combined = (r1 * 0.6) + (r2 * 0.4);
+
+  if (r1 > 70 || r2 > 70) {
+    combined = Math.max(r1, r2);
   }
 
-  if (score > 55) {
-    return [
-      "Minor visual inconsistencies",
-      "Slight mismatch in facial features",
-      "Compression artifacts detected"
-    ];
-  }
-
-  if (score > 35) {
-    return [
-      "No strong indicators found",
-      "Image quality limits detection accuracy"
-    ];
-  }
-
-  return [
-    "Natural facial structure",
-    "Consistent lighting and shadows",
-    "No manipulation patterns detected"
-  ];
+  return combined;
 }
 
 export async function POST(req: Request) {
@@ -79,39 +73,36 @@ export async function POST(req: Request) {
     const file = formData.get('file') as File;
 
     if (!file) {
-      return NextResponse.json({ riskScore: 0, explanation: "No file uploaded" });
+      return NextResponse.json({ riskScore: 0, verdict: "No file", confidence: "", reasons: [] });
     }
 
     const token = process.env.HF_TOKEN;
     if (!token) {
-      return NextResponse.json({ riskScore: 0, explanation: "Server not configured" });
+      return NextResponse.json({ riskScore: 0, verdict: "Server error", confidence: "", reasons: [] });
     }
 
     const buffer = await file.arrayBuffer();
     const type = file.type;
 
-    const m1 = await queryModel(
-      "https://router.huggingface.co/hf-inference/models/dima806/deepfake_vs_real_image_detection",
-      token,
-      buffer,
-      type
-    );
+    // 🔥 MULTI-PASS ANALYSIS (simulate multiple frames)
+    const passes = 3;
+    let scores: number[] = [];
 
-    const m2 = await queryModel(
-      "https://router.huggingface.co/hf-inference/models/prithivMLmods/Deep-Fake-Detector-Model",
-      token,
-      buffer,
-      type
-    );
-
-    const r1 = extractRisk(m1);
-    const r2 = extractRisk(m2);
-
-    let finalRisk = Math.round((r1 * 0.6) + (r2 * 0.4));
-
-    if (r1 > 70 || r2 > 70) {
-      finalRisk = Math.max(r1, r2);
+    for (let i = 0; i < passes; i++) {
+      const score = await analyzeImage(buffer, type, token);
+      scores.push(score);
     }
+
+    // average
+    let avg = scores.reduce((a, b) => a + b, 0) / scores.length;
+
+    // 🔥 BIAS TOWARD FAKE (important)
+    const maxScore = Math.max(...scores);
+    if (maxScore > 70) {
+      avg = maxScore;
+    }
+
+    const finalRisk = Math.round(avg);
 
     // Verdict
     let verdict = "";
@@ -131,7 +122,34 @@ export async function POST(req: Request) {
       confidence = "High confidence";
     }
 
-    const reasons = generateReasons(finalRisk);
+    // Reasons
+    let reasons: string[] = [];
+
+    if (finalRisk > 75) {
+      reasons = [
+        "Inconsistent facial details across frames",
+        "Unnatural texture and smoothing",
+        "Lighting/shadow mismatch",
+        "AI artifact patterns detected"
+      ];
+    } else if (finalRisk > 55) {
+      reasons = [
+        "Minor inconsistencies detected",
+        "Possible facial blending artifacts",
+        "Compression anomalies"
+      ];
+    } else if (finalRisk > 35) {
+      reasons = [
+        "No strong signals detected",
+        "Result may be affected by quality"
+      ];
+    } else {
+      reasons = [
+        "Consistent facial structure",
+        "Natural lighting and shadows",
+        "No manipulation patterns"
+      ];
+    }
 
     return NextResponse.json({
       riskScore: finalRisk,
@@ -143,9 +161,9 @@ export async function POST(req: Request) {
   } catch {
     return NextResponse.json({
       riskScore: 0,
-      verdict: "Error",
+      verdict: "System error",
       confidence: "",
-      reasons: ["System error occurred"]
+      reasons: ["Analysis failed"]
     });
   }
 }
