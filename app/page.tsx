@@ -11,7 +11,6 @@ export default function Home() {
     setLogs(prev => [...prev.slice(-6), msg]);
   };
 
-  // 🔥 Compress image (prevents HF crash)
   const compressImage = (file: File): Promise<File> => {
     return new Promise((resolve) => {
       const img = new Image();
@@ -50,31 +49,39 @@ export default function Home() {
     });
   };
 
-  // 🔥 Extract + compress video frame
-  const extractFrame = (videoFile: File): Promise<File> => {
+  const extractFrames = (videoFile: File): Promise<File[]> => {
     return new Promise((resolve) => {
       const video = document.createElement('video');
       video.src = URL.createObjectURL(videoFile);
 
-      video.onloadedmetadata = () => {
-        video.currentTime = video.duration / 2;
-      };
+      const frames: File[] = [];
+      const points = [0.1, 0.3, 0.5, 0.7, 0.9];
 
-      video.onseeked = async () => {
-        const canvas = document.createElement('canvas');
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
+      video.onloadedmetadata = async () => {
+        for (let i = 0; i < points.length; i++) {
+          video.currentTime = video.duration * points[i];
+          await new Promise(r => (video.onseeked = r));
 
-        const ctx = canvas.getContext('2d')!;
-        ctx.drawImage(video, 0, 0);
+          const canvas = document.createElement('canvas');
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
 
-        canvas.toBlob(async (blob) => {
+          const ctx = canvas.getContext('2d')!;
+          ctx.drawImage(video, 0, 0);
+
+          const blob: Blob | null = await new Promise(res =>
+            canvas.toBlob(res, 'image/jpeg', 0.7)
+          );
+
           if (blob) {
-            const frame = new File([blob], 'frame.jpg', { type: 'image/jpeg' });
-            const compressed = await compressImage(frame);
-            resolve(compressed);
+            const compressed = await compressImage(
+              new File([blob], `frame-${i}.jpg`, { type: 'image/jpeg' })
+            );
+            frames.push(compressed);
           }
-        }, 'image/jpeg', 0.8);
+        }
+
+        resolve(frames);
       };
     });
   };
@@ -88,48 +95,88 @@ export default function Home() {
 
     addLog("⚡ Initializing scan...");
 
-    let fileToSend = file;
-
     try {
-      // 🔥 HARD LIMIT
       if (file.size > 10 * 1024 * 1024) {
         throw new Error("File too large (max 10MB)");
       }
 
+      // 🎥 VIDEO MODE
       if (file.type.startsWith('video/')) {
-        addLog("🎥 Extracting frame...");
-        fileToSend = await extractFrame(file);
-      } else {
-        addLog("🗜️ Compressing image...");
-        fileToSend = await compressImage(file);
+        addLog("🎥 Extracting frames...");
+        const frames = await extractFrames(file);
+
+        addLog(`📦 ${frames.length} frames ready`);
+
+        let scores: number[] = [];
+
+        for (let i = 0; i < frames.length; i++) {
+          addLog(`🧠 Frame ${i + 1}/${frames.length}`);
+
+          const formData = new FormData();
+          formData.append('file', frames[i]);
+
+          const res = await fetch('/api/verify', {
+            method: 'POST',
+            body: formData,
+          });
+
+          const text = await res.text();
+
+          try {
+            const data = JSON.parse(text);
+            if (data?.riskScore !== undefined) {
+              scores.push(data.riskScore);
+            }
+          } catch {}
+        }
+
+        if (scores.length === 0) {
+          throw new Error("Video analysis failed");
+        }
+
+        const avg = scores.reduce((a, b) => a + b, 0) / scores.length;
+        const max = Math.max(...scores);
+
+        const finalScore = Math.round((avg * 0.6) + (max * 0.4));
+
+        setResult({
+          riskScore: finalScore,
+          verdict: finalScore > 60 ? "Likely Deepfake" : "Likely Authentic",
+          confidence: "Multi-frame analysis",
+          reasons: [
+            `Analyzed ${scores.length} frames`,
+            `Peak detection: ${Math.round(max)}%`
+          ]
+        });
+
+        addLog("✅ Video analysis complete");
+        setLoading(false);
+        return;
       }
 
-      addLog("📤 Uploading...");
+      // 🖼 IMAGE MODE
+      addLog("🗜️ Optimizing image...");
+      const compressed = await compressImage(file);
 
+      addLog("📤 Uploading...");
       const formData = new FormData();
-      formData.append('file', fileToSend);
+      formData.append('file', compressed);
 
       const res = await fetch('/api/verify', {
         method: 'POST',
         body: formData,
       });
 
-      // 🔥 SAFE PARSE (NO MORE CRASHES)
       const text = await res.text();
 
       let data;
       try {
         data = JSON.parse(text);
       } catch {
-        throw new Error("Server returned invalid response");
+        throw new Error("Invalid server response");
       }
 
-      if (!res.ok) {
-        throw new Error(data?.error || "Request failed");
-      }
-
-      addLog("🧠 AI analyzing...");
-      addLog("📊 Finalizing...");
+      if (!res.ok) throw new Error(data?.error);
 
       setResult(data);
       addLog("✅ Done");
@@ -143,11 +190,10 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-black text-emerald-500 font-mono p-6">
-
       <div className="max-w-2xl mx-auto border border-emerald-900 p-8 rounded-lg">
 
         <h1 className="text-3xl font-bold mb-6">
-          VerifyReal // Unstoppable
+          VerifyReal // Ultimate
         </h1>
 
         <input
@@ -165,33 +211,21 @@ export default function Home() {
           {loading ? "Analyzing..." : "Analyze"}
         </button>
 
-        {/* LOGS */}
         <div className="mt-4 text-xs space-y-1 min-h-[80px]">
           {logs.map((l, i) => <div key={i}>{l}</div>)}
         </div>
 
-        {/* RESULT */}
         {result && (
           <div className="mt-6">
-
-            <div className="text-4xl font-bold">
-              {result.riskScore}%
-            </div>
-
-            <div className="mt-1 text-lg">
-              {result.verdict}
-            </div>
-
-            <div className="text-xs opacity-60">
-              {result.confidence}
-            </div>
+            <div className="text-4xl font-bold">{result.riskScore}%</div>
+            <div className="text-lg">{result.verdict}</div>
+            <div className="text-xs opacity-60">{result.confidence}</div>
 
             <div className="mt-3 text-xs space-y-1">
               {result.reasons?.map((r: string, i: number) => (
                 <div key={i}>• {r}</div>
               ))}
             </div>
-
           </div>
         )}
 

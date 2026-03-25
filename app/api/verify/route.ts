@@ -2,7 +2,6 @@ import { NextResponse } from 'next/server';
 
 export const runtime = 'nodejs';
 
-// 🔥 Timeout wrapper (critical)
 async function fetchWithTimeout(url: string, options: any, timeout = 12000) {
   return Promise.race([
     fetch(url, options),
@@ -30,7 +29,6 @@ async function queryModel(url: string, token: string, buffer: ArrayBuffer, type:
     } catch {
       return null;
     }
-
   } catch {
     return null;
   }
@@ -72,7 +70,6 @@ export async function POST(req: Request) {
     const buffer = await file.arrayBuffer();
     const type = file.type;
 
-    // 🔥 RUN BOTH MODELS IN PARALLEL (FAST)
     const [m1, m2] = await Promise.all([
       queryModel(
         "https://router.huggingface.co/hf-inference/models/dima806/deepfake_vs_real_image_detection",
@@ -91,7 +88,6 @@ export async function POST(req: Request) {
     const r1 = extractRisk(m1);
     const r2 = extractRisk(m2);
 
-    // 🔥 FALLBACK SYSTEM (NEVER FAIL)
     let finalRisk = 50;
 
     if (r1 !== null && r2 !== null) {
@@ -104,7 +100,6 @@ export async function POST(req: Request) {
 
     finalRisk = Math.round(Math.min(100, finalRisk));
 
-    // 🔥 VERDICT SYSTEM
     let verdict = "";
     let confidence = "";
 
