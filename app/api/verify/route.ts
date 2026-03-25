@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
 
+export const runtime = 'nodejs';
+
 export async function POST(req: Request) {
   try {
     const formData = await req.formData();
@@ -17,11 +19,12 @@ export async function POST(req: Request) {
     if (!HF_TOKEN) {
       return NextResponse.json({
         riskScore: 0,
-        explanation: "Missing HF token"
+        explanation: "Missing HF_TOKEN"
       });
     }
 
-    const base64 = Buffer.from(await file.arrayBuffer()).toString("base64");
+    // ✅ SEND REAL BINARY (NOT BASE64)
+    const buffer = await file.arrayBuffer();
 
     const response = await fetch(
       "https://router.huggingface.co/hf-inference/models/dima806/deepfake_vs_real_image_detection",
@@ -29,36 +32,55 @@ export async function POST(req: Request) {
         method: "POST",
         headers: {
           Authorization: `Bearer ${HF_TOKEN}`,
-          "Content-Type": "application/json",
+          "Content-Type": file.type || "application/octet-stream",
         },
-        body: JSON.stringify({
-          inputs: base64
-        }),
+        body: buffer,
       }
     );
 
-    const data = await response.json();
+    // Read raw text first (avoids crash)
+    const text = await response.text();
 
-    let risk = 50;
+    let data: any;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      return NextResponse.json({
+        riskScore: 0,
+        explanation: "HF non-JSON: " + text.slice(0, 120)
+      });
+    }
 
-    if (Array.isArray(data) && data[0]) {
-      const item = data[0];
-
-      if (item.label?.toLowerCase().includes("fake")) {
-        risk = Math.round(item.score * 100);
-      } else {
-        risk = Math.round((1 - item.score) * 100);
-      }
-    } else if (data.error) {
+    // 🔥 Handle errors from HF
+    if (data.error) {
       return NextResponse.json({
         riskScore: 0,
         explanation: "HF error: " + data.error
       });
     }
 
+    let risk = 50;
+
+    // ✅ Correct parsing
+    if (Array.isArray(data) && data[0]) {
+      const results = data[0];
+
+      // Sometimes returns multiple labels
+      const fake = results.find((r: any) =>
+        r.label.toLowerCase().includes("fake")
+      );
+
+      if (fake) {
+        risk = Math.round(fake.score * 100);
+      } else {
+        // fallback
+        risk = 50;
+      }
+    }
+
     return NextResponse.json({
       riskScore: risk,
-      explanation: `AI result: ${risk}% deepfake probability`
+      explanation: `Deepfake probability: ${risk}%`
     });
 
   } catch (err: any) {

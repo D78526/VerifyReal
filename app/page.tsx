@@ -6,7 +6,9 @@ export default function Home() {
   const [riskScore, setRiskScore] = useState<number | null>(null);
   const [explanation, setExplanation] = useState('');
   const [loading, setLoading] = useState(false);
+  const [progress, setProgress] = useState(0);
 
+  // Extract 1 frame (fast + stable)
   const extractFrame = (videoFile: File): Promise<File> => {
     return new Promise((resolve) => {
       const video = document.createElement('video');
@@ -35,8 +37,14 @@ export default function Home() {
     if (!file) return;
 
     setLoading(true);
+    setProgress(0);
     setRiskScore(null);
     setExplanation('');
+
+    // fake progress animation
+    const interval = setInterval(() => {
+      setProgress((p) => (p < 90 ? p + 5 : p));
+    }, 200);
 
     let fileToSend = file;
 
@@ -48,21 +56,21 @@ export default function Home() {
     formData.append('file', fileToSend);
 
     try {
-      const controller = new AbortController();
-      setTimeout(() => controller.abort(), 15000);
-
       const res = await fetch('/api/verify', {
         method: 'POST',
         body: formData,
-        signal: controller.signal,
       });
 
       const data = await res.json();
 
+      clearInterval(interval);
+      setProgress(100);
+
       setRiskScore(data.riskScore);
       setExplanation(data.explanation);
     } catch {
-      setExplanation('Request failed or timed out');
+      clearInterval(interval);
+      setExplanation("Request failed");
     }
 
     setLoading(false);
@@ -70,8 +78,10 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-black text-white p-8 font-sans">
-      <h1 className="text-6xl font-bold text-center mb-4">VerifyReal ✓</h1>
-      <p className="text-center text-2xl mb-12">Deepfake Risk Score 0–100%</p>
+      <h1 className="text-6xl font-bold text-center mb-2">VerifyReal ✓</h1>
+      <p className="text-center text-lg text-gray-400 mb-12">
+        AI-powered deepfake detection for images & video
+      </p>
 
       <input
         type="file"
@@ -88,15 +98,58 @@ export default function Home() {
         {loading ? 'Analyzing...' : 'Get Risk Score'}
       </button>
 
+      {/* Progress bar */}
+      {loading && (
+        <div className="mt-6 max-w-md mx-auto">
+          <div className="h-4 bg-gray-700 rounded">
+            <div
+              className="h-4 bg-green-500 rounded transition-all"
+              style={{ width: `${progress}%` }}
+            ></div>
+          </div>
+          <p className="text-center mt-2 text-sm">Scanning media with AI...</p>
+        </div>
+      )}
+
+      {/* Result */}
       {riskScore !== null && (
         <div className="mt-16 text-center max-w-md mx-auto">
-          <div className="text-8xl font-bold mb-3">{riskScore}%</div>
 
-          <div className={`text-4xl font-bold ${riskScore > 60 ? 'text-red-500' : 'text-green-500'}`}>
-            {riskScore > 60 ? 'HIGH RISK — Likely Deepfake' : 'LOW RISK — Probably Real'}
+          {/* Animated Circle */}
+          <div className="relative w-48 h-48 mx-auto mb-6">
+            <div className="absolute inset-0 rounded-full border-8 border-gray-700"></div>
+
+            <div
+              className={`absolute inset-0 rounded-full border-8 ${
+                riskScore > 60 ? 'border-red-500' : 'border-green-500'
+              }`}
+              style={{
+                clipPath: `inset(${100 - riskScore}% 0 0 0)`
+              }}
+            ></div>
+
+            <div className="absolute inset-0 flex items-center justify-center text-4xl font-bold">
+              {riskScore}%
+            </div>
           </div>
 
-          <p className="mt-8 text-xl">{explanation}</p>
+          {/* Status */}
+          <div className={`text-3xl font-bold ${riskScore > 60 ? 'text-red-500' : 'text-green-500'}`}>
+            {riskScore > 60 ? '⚠️ Likely Deepfake' : '✅ Likely Authentic'}
+          </div>
+
+          <p className="mt-6 text-lg text-gray-300">{explanation}</p>
+
+          {/* Share button */}
+          <button
+            onClick={() => {
+              const text = `VerifyReal result: ${riskScore}% risk`;
+              window.open(`https://x.com/intent/tweet?text=${encodeURIComponent(text)}`);
+            }}
+            className="mt-8 bg-blue-600 px-6 py-3 rounded-xl"
+          >
+            Share Result
+          </button>
         </div>
       )}
     </div>
