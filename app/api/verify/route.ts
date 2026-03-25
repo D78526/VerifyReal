@@ -23,7 +23,6 @@ export async function POST(req: Request) {
       });
     }
 
-    // ✅ SEND REAL BINARY (NOT BASE64)
     const buffer = await file.arrayBuffer();
 
     const response = await fetch(
@@ -38,7 +37,6 @@ export async function POST(req: Request) {
       }
     );
 
-    // Read raw text first (avoids crash)
     const text = await response.text();
 
     let data: any;
@@ -47,11 +45,10 @@ export async function POST(req: Request) {
     } catch {
       return NextResponse.json({
         riskScore: 0,
-        explanation: "HF non-JSON: " + text.slice(0, 120)
+        explanation: "HF non-JSON: " + text.slice(0, 100)
       });
     }
 
-    // 🔥 Handle errors from HF
     if (data.error) {
       return NextResponse.json({
         riskScore: 0,
@@ -61,20 +58,29 @@ export async function POST(req: Request) {
 
     let risk = 50;
 
-    // ✅ Correct parsing
-    if (Array.isArray(data) && data[0]) {
-      const results = data[0];
+    // 🔥 HANDLE ALL POSSIBLE FORMATS
+    if (Array.isArray(data)) {
+      let results = data;
 
-      // Sometimes returns multiple labels
-      const fake = results.find((r: any) =>
-        r.label.toLowerCase().includes("fake")
-      );
+      // case: [[...]]
+      if (Array.isArray(data[0])) {
+        results = data[0];
+      }
 
-      if (fake) {
-        risk = Math.round(fake.score * 100);
-      } else {
-        // fallback
-        risk = 50;
+      if (results.length > 0) {
+        const fake = results.find((r: any) =>
+          r.label?.toLowerCase().includes("fake")
+        );
+
+        if (fake) {
+          risk = Math.round(fake.score * 100);
+        } else {
+          // fallback: use highest score
+          const top = results.reduce((a: any, b: any) =>
+            a.score > b.score ? a : b
+          );
+          risk = Math.round((1 - top.score) * 100);
+        }
       }
     }
 
