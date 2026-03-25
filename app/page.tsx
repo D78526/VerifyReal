@@ -1,185 +1,113 @@
 'use client';
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 
 export default function Home() {
   const [file, setFile] = useState<File | null>(null);
-  const [riskScore, setRiskScore] = useState<number | null>(null);
-  const [verdict, setVerdict] = useState('');
-  const [confidence, setConfidence] = useState('');
-  const [reasons, setReasons] = useState<string[]>([]);
+  const [result, setResult] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState(0);
 
-  // Extract frame from video
-  const extractFrame = (videoFile: File): Promise<File> => {
-    return new Promise((resolve) => {
-      const video = document.createElement('video');
-      video.src = URL.createObjectURL(videoFile);
-
-      video.onloadedmetadata = () => {
-        video.currentTime = 1;
-      };
-
-      video.onseeked = () => {
-        const canvas = document.createElement('canvas');
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-
-        const ctx = canvas.getContext('2d')!;
-        ctx.drawImage(video, 0, 0);
-
-        canvas.toBlob((blob) => {
-          if (blob) {
-            resolve(new File([blob], 'frame.jpg', { type: 'image/jpeg' }));
-          }
-        });
-      };
-    });
-  };
-
   const handleUpload = async () => {
     if (!file) return;
-
     setLoading(true);
-    setProgress(0);
-    setRiskScore(null);
-
-    const interval = setInterval(() => {
-      setProgress((p) => (p < 90 ? p + 5 : p));
-    }, 200);
-
-    let fileToSend = file;
-
-    if (file.type.startsWith('video/')) {
-      fileToSend = await extractFrame(file);
-    }
-
+    setProgress(10);
+    
     const formData = new FormData();
-    formData.append('file', fileToSend);
+    formData.append('file', file);
 
     try {
-      const res = await fetch('/api/verify', {
-        method: 'POST',
-        body: formData,
-      });
-
+      const res = await fetch('/api/verify', { method: 'POST', body: formData });
       const data = await res.json();
-
-      clearInterval(interval);
       setProgress(100);
-
-      setRiskScore(data.riskScore);
-      setVerdict(data.verdict);
-      setConfidence(data.confidence);
-      setReasons(data.reasons);
-    } catch {
-      clearInterval(interval);
-      setVerdict("Error");
-      setConfidence("");
-      setReasons(["Request failed"]);
+      setResult(data);
+    } catch (e) {
+      console.error("Upload failed");
+    } finally {
+      setLoading(false);
     }
-
-    setLoading(false);
   };
 
   return (
-    <div className="min-h-screen bg-black text-white p-8 font-sans">
+    <div className="min-h-screen bg-[#050505] text-slate-100 selection:bg-emerald-500/30 font-sans">
+      {/* Background Decor */}
+      <div className="fixed inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute -top-[10%] -left-[10%] w-[40%] h-[40%] bg-emerald-900/20 blur-[120px] rounded-full" />
+        <div className="absolute top-[20%] -right-[10%] w-[30%] h-[50%] bg-blue-900/10 blur-[120px] rounded-full" />
+      </div>
 
-      <h1 className="text-6xl font-bold text-center mb-2">
-        VerifyReal ✓
-      </h1>
-
-      <p className="text-center text-lg text-gray-400 mb-12">
-        AI-powered deepfake detection for images & video
-      </p>
-
-      <input
-        type="file"
-        accept="image/*,video/*"
-        onChange={(e) => setFile(e.target.files?.[0] || null)}
-        className="block mx-auto mb-8 text-lg"
-      />
-
-      <button
-        onClick={handleUpload}
-        disabled={loading || !file}
-        className="bg-green-600 px-12 py-6 rounded-2xl text-2xl mx-auto block font-bold"
-      >
-        {loading ? 'Analyzing...' : 'Get Risk Score'}
-      </button>
-
-      {/* Progress */}
-      {loading && (
-        <div className="mt-6 max-w-md mx-auto">
-          <div className="h-4 bg-gray-700 rounded">
-            <div
-              className="h-4 bg-green-500 rounded transition-all"
-              style={{ width: `${progress}%` }}
-            ></div>
+      <main className="relative z-10 max-w-4xl mx-auto px-6 py-20">
+        <header className="text-center mb-16">
+          <div className="inline-block px-3 py-1 mb-4 rounded-full border border-emerald-500/30 bg-emerald-500/5 text-emerald-400 text-xs font-medium tracking-widest uppercase">
+            Global Media Verification Standard
           </div>
-          <p className="text-center mt-2 text-sm">
-            Scanning media with AI...
+          <h1 className="text-7xl font-extrabold tracking-tighter mb-4 bg-gradient-to-b from-white to-gray-500 bg-clip-text text-transparent">
+            VerifyReal<span className="text-emerald-500">.</span>
+          </h1>
+          <p className="text-gray-400 text-lg max-w-xl mx-auto">
+            Leveraging neural networks to detect synthetic manipulation and deepfake artifacts in digital media.
           </p>
-        </div>
-      )}
+        </header>
 
-      {/* Result */}
-      {riskScore !== null && (
-        <div className="mt-16 text-center max-w-md mx-auto">
-
-          {/* Circle */}
-          <div className="relative w-48 h-48 mx-auto mb-6">
-            <div className="absolute inset-0 rounded-full border-8 border-gray-700"></div>
-
-            <div
-              className={`absolute inset-0 rounded-full border-8 ${
-                riskScore > 60 ? 'border-red-500' : 'border-green-500'
-              }`}
-              style={{
-                clipPath: `inset(${100 - riskScore}% 0 0 0)`
-              }}
-            ></div>
-
-            <div className="absolute inset-0 flex items-center justify-center text-4xl font-bold">
-              {riskScore}%
-            </div>
+        {/* Upload Zone */}
+        <section className="bg-white/5 border border-white/10 backdrop-blur-xl rounded-3xl p-8 shadow-2xl">
+          <div className="flex flex-col items-center justify-center border-2 border-dashed border-white/10 rounded-2xl py-12 px-4 transition-colors hover:border-emerald-500/50">
+            <input 
+              type="file" 
+              className="hidden" 
+              id="file-upload" 
+              onChange={(e) => setFile(e.target.files?.[0] || null)}
+            />
+            <label htmlFor="file-upload" className="cursor-pointer text-center">
+              <span className="block text-4xl mb-4">📁</span>
+              <span className="text-lg font-medium block">{file ? file.name : "Select Media Asset"}</span>
+              <span className="text-sm text-gray-500 mt-2 block italic">Supports JPG, PNG, MP4</span>
+            </label>
           </div>
 
-          {/* Verdict */}
-          <div className="text-3xl font-bold mb-2">
-            {verdict}
-          </div>
-
-          <div className="text-gray-400 mb-6">
-            {confidence}
-          </div>
-
-          {/* Analysis */}
-          <div className="text-left bg-gray-900 p-6 rounded-2xl">
-            <h3 className="text-lg font-semibold mb-3">
-              Analysis
-            </h3>
-
-            <ul className="space-y-2 text-gray-300">
-              {reasons.map((r, i) => (
-                <li key={i}>• {r}</li>
-              ))}
-            </ul>
-          </div>
-
-          {/* Share */}
           <button
-            onClick={() => {
-              const text = `VerifyReal: ${riskScore}% risk — ${verdict}`;
-              window.open(`https://x.com/intent/tweet?text=${encodeURIComponent(text)}`);
-            }}
-            className="mt-8 bg-blue-600 px-6 py-3 rounded-xl"
+            onClick={handleUpload}
+            disabled={!file || loading}
+            className="w-full mt-8 bg-emerald-500 hover:bg-emerald-400 disabled:bg-gray-800 text-black font-bold py-4 rounded-xl transition-all transform active:scale-[0.98] shadow-[0_0_20px_rgba(16,185,129,0.2)]"
           >
-            Share Result
+            {loading ? `SCANNIG... ${progress}%` : 'INITIALIZE ANALYSIS'}
           </button>
+        </section>
 
-        </div>
-      )}
+        {/* Results View */}
+        {result && (
+          <section className="mt-12 grid grid-cols-1 md:grid-cols-2 gap-6 animate-in fade-in slide-in-from-bottom-4 duration-700">
+            <div className="bg-white/5 border border-white/10 rounded-3xl p-8 flex flex-col items-center justify-center">
+              <div className="relative w-40 h-40">
+                 <svg className="w-full h-full" viewBox="0 0 100 100">
+                    <circle cx="50" cy="50" r="45" fill="none" stroke="#1f2937" strokeWidth="8" />
+                    <circle cx="50" cy="50" r="45" fill="none" stroke={result.riskScore > 60 ? "#ef4444" : "#10b981"} 
+                            strokeWidth="8" strokeDasharray="283" strokeDashoffset={283 - (283 * result.riskScore) / 100} 
+                            strokeLinecap="round" className="transition-all duration-1000" />
+                 </svg>
+                 <div className="absolute inset-0 flex flex-col items-center justify-center">
+                    <span className="text-4xl font-bold">{result.riskScore}%</span>
+                    <span className="text-[10px] text-gray-500 uppercase tracking-widest">Risk Index</span>
+                 </div>
+              </div>
+            </div>
+
+            <div className="bg-white/5 border border-white/10 rounded-3xl p-8">
+              <h3 className="text-emerald-500 text-xs font-bold uppercase tracking-widest mb-4">Verification Report</h3>
+              <div className="text-3xl font-bold mb-2">{result.verdict}</div>
+              <p className="text-gray-400 text-sm mb-6 leading-relaxed">
+                {result.riskScore > 50 
+                  ? "Analysis suggests high probability of algorithmic generation. Metadata and noise patterns are inconsistent with organic capture."
+                  : "Media aligns with standard authentic capture patterns. No significant synthetic artifacts detected."}
+              </p>
+              <div className="flex gap-2">
+                <span className={`px-3 py-1 rounded-full text-[10px] font-bold ${result.isConsistent ? 'bg-emerald-500/10 text-emerald-500' : 'bg-amber-500/10 text-amber-500'}`}>
+                  {result.isConsistent ? "HIGH CONSISTENCY" : "LOW CONSISTENCY"}
+                </span>
+              </div>
+            </div>
+          </section>
+        )}
+      </main>
     </div>
   );
 }
