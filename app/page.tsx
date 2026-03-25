@@ -3,77 +3,126 @@ import { useState } from 'react';
 
 export default function Home() {
   const [file, setFile] = useState<File | null>(null);
-  const [data, setData] = useState<any>(null);
+  const [result, setResult] = useState<any>(null);
   const [loading, setLoading] = useState(false);
-  const [status, setStatus] = useState('');
+  const [logs, setLogs] = useState<string[]>([]);
 
-  const handleAnalyze = async () => {
+  const addLog = (msg: string) => {
+    setLogs(prev => [...prev.slice(-5), msg]);
+  };
+
+  const extractFrame = (videoFile: File): Promise<File> => {
+    return new Promise((resolve) => {
+      const video = document.createElement('video');
+      video.src = URL.createObjectURL(videoFile);
+
+      video.onloadedmetadata = () => {
+        video.currentTime = video.duration / 2;
+      };
+
+      video.onseeked = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+
+        const ctx = canvas.getContext('2d')!;
+        ctx.drawImage(video, 0, 0);
+
+        canvas.toBlob((blob) => {
+          if (blob) {
+            resolve(new File([blob], 'frame.jpg', { type: 'image/jpeg' }));
+          }
+        });
+      };
+    });
+  };
+
+  const runAnalysis = async () => {
     if (!file) return;
+
     setLoading(true);
-    setStatus('Initializing Neural Engine...');
-    
-    const formData = new FormData();
-    formData.append('file', file);
+    setResult(null);
+    setLogs([]);
+
+    addLog("⚡ Initializing scan...");
+
+    let fileToSend = file;
 
     try {
-      setStatus('Uploading to Global Nodes...');
-      const res = await fetch('/api/verify', { method: 'POST', body: formData });
-      setStatus('Scanning Spectral Artifacts...');
-      const result = await res.json();
-      
-      if (result.error) throw new Error(result.error);
-      setData(result);
-    } catch (e) {
-      setStatus('Error: Connection Timed Out');
+      if (file.type.startsWith('video/')) {
+        addLog("🎥 Extracting frame...");
+        fileToSend = await extractFrame(file);
+      }
+
+      addLog("📤 Uploading...");
+      const formData = new FormData();
+      formData.append('file', fileToSend);
+
+      const res = await fetch('/api/verify', {
+        method: 'POST',
+        body: formData,
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) throw new Error(data.error);
+
+      addLog("🧠 AI analyzing...");
+      addLog("📊 Finalizing...");
+
+      setResult(data);
+      addLog("✅ Done");
+
+    } catch (e: any) {
+      addLog(`❌ ${e.message}`);
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-[#0a0a0a] text-white p-6 font-mono flex flex-col items-center justify-center">
-      {/* ELITE HEADER */}
-      <div className="text-center mb-12">
-        <h1 className="text-5xl font-black tracking-tighter mb-2 italic">VERIFY_REAL.v2</h1>
-        <div className="h-1 w-32 bg-emerald-500 mx-auto rounded-full"></div>
-      </div>
+    <div className="min-h-screen bg-black text-emerald-500 font-mono p-6">
 
-      {/* DROPZONE */}
-      <div className="w-full max-w-xl bg-[#111] border border-white/10 p-8 rounded-2xl shadow-2xl">
-        <input 
-          type="file" 
+      <div className="max-w-2xl mx-auto border border-emerald-900 p-8 rounded-lg">
+
+        <h1 className="text-3xl font-bold mb-6">VerifyReal</h1>
+
+        <input
+          type="file"
+          accept="image/*,video/*"
           onChange={(e) => setFile(e.target.files?.[0] || null)}
-          className="w-full mb-6 text-sm text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:bg-emerald-500 file:text-black file:font-bold hover:file:bg-emerald-400 cursor-pointer"
+          className="mb-4 w-full"
         />
 
         <button
-          onClick={handleAnalyze}
+          onClick={runAnalysis}
           disabled={loading || !file}
-          className="w-full bg-white text-black py-4 font-black rounded-lg hover:bg-gray-200 transition-all active:scale-95 disabled:opacity-50"
+          className="w-full bg-emerald-500 text-black py-3 font-bold"
         >
-          {loading ? status.toUpperCase() : 'RUN DIAGNOSTICS'}
+          {loading ? "Analyzing..." : "Analyze"}
         </button>
-      </div>
 
-      {/* RESULTS TABLE */}
-      {data && (
-        <div className="w-full max-w-xl mt-8 animate-in fade-in slide-in-from-top-4 duration-500">
-          <div className={`p-6 rounded-2xl border-2 ${data.riskScore > 60 ? 'border-red-500 bg-red-500/5' : 'border-emerald-500 bg-emerald-500/5'}`}>
-            <div className="flex justify-between items-center mb-4">
-              <span className="text-sm uppercase tracking-widest font-bold opacity-70">Analysis Verdict</span>
-              <span className="text-xs bg-white/10 px-2 py-1 rounded">Confidence: {data.confidence}</span>
-            </div>
-            <div className="text-4xl font-black mb-1">{data.verdict}</div>
-            <div className="text-6xl font-black text-white/20 mb-6">{data.riskScore}% <span className="text-lg tracking-normal opacity-50">RISK</span></div>
-            
-            <div className="space-y-2 border-t border-white/10 pt-4">
-              {data.reasons.map((r: string, i: number) => (
-                <div key={i} className="text-xs text-gray-400">» {r}</div>
-              ))}
-            </div>
-          </div>
+        <div className="mt-4 text-xs">
+          {logs.map((l, i) => <div key={i}>{l}</div>)}
         </div>
-      )}
+
+        {result && (
+          <div className="mt-6">
+
+            <h2 className="text-2xl">{result.riskScore}%</h2>
+            <p>{result.verdict}</p>
+            <p className="text-xs">{result.confidence}</p>
+
+            <ul className="text-xs mt-2">
+              {result.reasons.map((r: string, i: number) => (
+                <li key={i}>• {r}</li>
+              ))}
+            </ul>
+
+          </div>
+        )}
+
+      </div>
     </div>
   );
 }
