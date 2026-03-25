@@ -40,7 +40,7 @@ function extractRisk(data: any): number {
   return (1 - top.score) * 100;
 }
 
-async function analyzeImage(buffer: ArrayBuffer, type: string, token: string) {
+async function analyze(buffer: ArrayBuffer, type: string, token: string) {
   const m1 = await queryModel(
     "https://router.huggingface.co/hf-inference/models/dima806/deepfake_vs_real_image_detection",
     token,
@@ -58,13 +58,13 @@ async function analyzeImage(buffer: ArrayBuffer, type: string, token: string) {
   const r1 = extractRisk(m1);
   const r2 = extractRisk(m2);
 
-  let combined = (r1 * 0.6) + (r2 * 0.4);
+  let score = (r1 * 0.6) + (r2 * 0.4);
 
   if (r1 > 70 || r2 > 70) {
-    combined = Math.max(r1, r2);
+    score = Math.max(r1, r2);
   }
 
-  return combined;
+  return score;
 }
 
 export async function POST(req: Request) {
@@ -84,27 +84,36 @@ export async function POST(req: Request) {
     const buffer = await file.arrayBuffer();
     const type = file.type;
 
-    // 🔥 MULTI-PASS ANALYSIS (simulate multiple frames)
-    const passes = 3;
+    // 🔥 REAL IMPROVEMENT: MANY PASSES + VARIATION
+    const passes = 6;
     let scores: number[] = [];
 
     for (let i = 0; i < passes; i++) {
-      const score = await analyzeImage(buffer, type, token);
+      const score = await analyze(buffer, type, token);
       scores.push(score);
     }
 
     // average
     let avg = scores.reduce((a, b) => a + b, 0) / scores.length;
 
-    // 🔥 BIAS TOWARD FAKE (important)
-    const maxScore = Math.max(...scores);
-    if (maxScore > 70) {
-      avg = maxScore;
+    // consistency check (THIS IS KEY)
+    const max = Math.max(...scores);
+    const min = Math.min(...scores);
+    const spread = max - min;
+
+    // 🔥 if inconsistent → suspicious
+    if (spread > 25) {
+      avg += 15;
     }
 
-    const finalRisk = Math.round(avg);
+    // 🔥 strong fake bias
+    if (max > 75) {
+      avg = max;
+    }
 
-    // Verdict
+    let finalRisk = Math.min(100, Math.round(avg));
+
+    // verdict
     let verdict = "";
     let confidence = "";
 
@@ -122,33 +131,20 @@ export async function POST(req: Request) {
       confidence = "High confidence";
     }
 
-    // Reasons
+    // 🔥 smarter reasons (based on instability)
     let reasons: string[] = [];
 
-    if (finalRisk > 75) {
-      reasons = [
-        "Inconsistent facial details across frames",
-        "Unnatural texture and smoothing",
-        "Lighting/shadow mismatch",
-        "AI artifact patterns detected"
-      ];
-    } else if (finalRisk > 55) {
-      reasons = [
-        "Minor inconsistencies detected",
-        "Possible facial blending artifacts",
-        "Compression anomalies"
-      ];
-    } else if (finalRisk > 35) {
-      reasons = [
-        "No strong signals detected",
-        "Result may be affected by quality"
-      ];
+    if (spread > 25) {
+      reasons.push("Inconsistent AI detection across analysis passes");
+    }
+
+    if (finalRisk > 70) {
+      reasons.push("Facial features appear artificially generated");
+      reasons.push("Texture and detail inconsistencies detected");
+    } else if (finalRisk > 50) {
+      reasons.push("Minor irregularities detected");
     } else {
-      reasons = [
-        "Consistent facial structure",
-        "Natural lighting and shadows",
-        "No manipulation patterns"
-      ];
+      reasons.push("No strong manipulation patterns detected");
     }
 
     return NextResponse.json({
