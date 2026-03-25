@@ -88,56 +88,67 @@ export async function POST(req: Request) {
     const r1 = extractRisk(m1);
     const r2 = extractRisk(m2);
 
+    // 🔥 FINAL BOSS SCORING
     let finalRisk = 50;
 
     if (r1 !== null && r2 !== null) {
-      finalRisk = (r1 * 0.65) + (r2 * 0.35);
+      finalRisk = (r1 * 0.6) + (r2 * 0.4);
+
+      if (r1 < 30 && r2 < 30) {
+        finalRisk *= 0.8;
+      }
+
+      if (r1 > 70 || r2 > 70) {
+        finalRisk = Math.max(r1, r2);
+      }
+
+      if (Math.abs(r1 - r2) > 40) {
+        finalRisk += 15;
+      }
+
     } else if (r1 !== null) {
       finalRisk = r1;
     } else if (r2 !== null) {
       finalRisk = r2;
     }
 
-    finalRisk = Math.round(Math.min(100, finalRisk));
+    finalRisk = Math.min(100, Math.round(finalRisk));
 
     let verdict = "";
-    let confidence = "";
 
     if (finalRisk > 75) {
-      verdict = "Likely Deepfake";
-      confidence = "High confidence";
+      verdict = "High Risk — Likely AI Generated";
     } else if (finalRisk > 55) {
-      verdict = "Possibly Manipulated";
-      confidence = "Medium confidence";
+      verdict = "Moderate Risk — Needs Review";
     } else if (finalRisk > 35) {
-      verdict = "Uncertain";
-      confidence = "Low confidence";
+      verdict = "Low Confidence Result";
     } else {
-      verdict = "Likely Authentic";
-      confidence = "High confidence";
+      verdict = "Low Risk — Likely Authentic";
     }
 
     let reasons: string[] = [];
 
-    if (r1 !== null && r2 !== null) {
-      const diff = Math.abs(r1 - r2);
-      if (diff > 30) {
-        reasons.push("Model disagreement detected");
-      }
+    if (finalRisk > 75) {
+      reasons.push("High likelihood of AI manipulation");
+      reasons.push("Visual inconsistencies detected");
     }
 
-    if (finalRisk > 70) {
-      reasons.push("Strong manipulation patterns detected");
-    } else if (finalRisk > 50) {
-      reasons.push("Minor inconsistencies detected");
-    } else {
-      reasons.push("No major manipulation signals");
+    if (finalRisk > 50 && finalRisk <= 75) {
+      reasons.push("Some elements appear artificially generated");
+    }
+
+    if (finalRisk <= 50) {
+      reasons.push("No strong signs of manipulation");
+    }
+
+    if (r1 !== null && r2 !== null && Math.abs(r1 - r2) > 40) {
+      reasons.push("Analysis inconsistency — requires caution");
     }
 
     return NextResponse.json({
       riskScore: finalRisk,
       verdict,
-      confidence,
+      confidence: "AI multi-model analysis",
       reasons
     });
 

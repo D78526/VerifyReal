@@ -89,6 +89,13 @@ export default function Home() {
   const runAnalysis = async () => {
     if (!file) return;
 
+    const limit = Number(localStorage.getItem("limit") || "0");
+    if (limit >= 5) {
+      addLog("⚠️ Free limit reached");
+      return;
+    }
+    localStorage.setItem("limit", String(limit + 1));
+
     setLoading(true);
     setResult(null);
     setLogs([]);
@@ -100,12 +107,9 @@ export default function Home() {
         throw new Error("File too large (max 10MB)");
       }
 
-      // 🎥 VIDEO MODE
       if (file.type.startsWith('video/')) {
         addLog("🎥 Extracting frames...");
         const frames = await extractFrames(file);
-
-        addLog(`📦 ${frames.length} frames ready`);
 
         let scores: number[] = [];
 
@@ -141,8 +145,15 @@ export default function Home() {
 
         setResult({
           riskScore: finalScore,
-          verdict: finalScore > 60 ? "Likely Deepfake" : "Likely Authentic",
-          confidence: "Multi-frame analysis",
+          verdict:
+            finalScore > 75
+              ? "High Risk — Likely AI Generated"
+              : finalScore > 55
+              ? "Moderate Risk — Needs Review"
+              : finalScore > 35
+              ? "Low Confidence Result"
+              : "Low Risk — Likely Authentic",
+          confidence: "Multi-frame AI analysis",
           reasons: [
             `Analyzed ${scores.length} frames`,
             `Peak detection: ${Math.round(max)}%`
@@ -150,15 +161,12 @@ export default function Home() {
         });
 
         addLog("✅ Video analysis complete");
-        setLoading(false);
         return;
       }
 
-      // 🖼 IMAGE MODE
       addLog("🗜️ Optimizing image...");
       const compressed = await compressImage(file);
 
-      addLog("📤 Uploading...");
       const formData = new FormData();
       formData.append('file', compressed);
 
@@ -193,7 +201,7 @@ export default function Home() {
       <div className="max-w-2xl mx-auto border border-emerald-900 p-8 rounded-lg">
 
         <h1 className="text-3xl font-bold mb-6">
-          VerifyReal // Ultimate
+          VerifyReal // Final Boss
         </h1>
 
         <input
