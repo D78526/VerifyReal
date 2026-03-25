@@ -40,6 +40,39 @@ function extractRisk(data: any): number {
   return (1 - top.score) * 100;
 }
 
+// 🔥 generate human-like reasons
+function generateReasons(score: number): string[] {
+  if (score > 75) {
+    return [
+      "Facial inconsistencies detected",
+      "Unnatural skin texture or smoothing",
+      "Lighting/shadow mismatch",
+      "Possible AI-generated artifacts"
+    ];
+  }
+
+  if (score > 55) {
+    return [
+      "Minor visual inconsistencies",
+      "Slight mismatch in facial features",
+      "Compression artifacts detected"
+    ];
+  }
+
+  if (score > 35) {
+    return [
+      "No strong indicators found",
+      "Image quality limits detection accuracy"
+    ];
+  }
+
+  return [
+    "Natural facial structure",
+    "Consistent lighting and shadows",
+    "No manipulation patterns detected"
+  ];
+}
+
 export async function POST(req: Request) {
   try {
     const formData = await req.formData();
@@ -80,33 +113,39 @@ export async function POST(req: Request) {
       finalRisk = Math.max(r1, r2);
     }
 
-    // ✅ HUMAN-FRIENDLY RESULT
-    let message = "";
+    // Verdict
+    let verdict = "";
     let confidence = "";
 
     if (finalRisk > 75) {
-      message = "High likelihood of manipulation";
+      verdict = "Likely Deepfake";
       confidence = "High confidence";
     } else if (finalRisk > 55) {
-      message = "Possible manipulation detected";
+      verdict = "Possibly Manipulated";
       confidence = "Medium confidence";
     } else if (finalRisk > 35) {
-      message = "Uncertain result";
+      verdict = "Uncertain";
       confidence = "Low confidence";
     } else {
-      message = "Likely authentic content";
+      verdict = "Likely Authentic";
       confidence = "High confidence";
     }
 
+    const reasons = generateReasons(finalRisk);
+
     return NextResponse.json({
       riskScore: finalRisk,
-      explanation: `${message} • ${confidence}`
+      verdict,
+      confidence,
+      reasons
     });
 
-  } catch (err: any) {
+  } catch {
     return NextResponse.json({
       riskScore: 0,
-      explanation: "System error"
+      verdict: "Error",
+      confidence: "",
+      reasons: ["System error occurred"]
     });
   }
 }

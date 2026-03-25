@@ -4,11 +4,13 @@ import { useState } from 'react';
 export default function Home() {
   const [file, setFile] = useState<File | null>(null);
   const [riskScore, setRiskScore] = useState<number | null>(null);
-  const [explanation, setExplanation] = useState('');
+  const [verdict, setVerdict] = useState('');
+  const [confidence, setConfidence] = useState('');
+  const [reasons, setReasons] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState(0);
 
-  // Extract 1 frame (fast + stable)
+  // Extract frame from video
   const extractFrame = (videoFile: File): Promise<File> => {
     return new Promise((resolve) => {
       const video = document.createElement('video');
@@ -27,7 +29,9 @@ export default function Home() {
         ctx.drawImage(video, 0, 0);
 
         canvas.toBlob((blob) => {
-          if (blob) resolve(new File([blob], 'frame.jpg', { type: 'image/jpeg' }));
+          if (blob) {
+            resolve(new File([blob], 'frame.jpg', { type: 'image/jpeg' }));
+          }
         });
       };
     });
@@ -39,9 +43,7 @@ export default function Home() {
     setLoading(true);
     setProgress(0);
     setRiskScore(null);
-    setExplanation('');
 
-    // fake progress animation
     const interval = setInterval(() => {
       setProgress((p) => (p < 90 ? p + 5 : p));
     }, 200);
@@ -67,10 +69,14 @@ export default function Home() {
       setProgress(100);
 
       setRiskScore(data.riskScore);
-      setExplanation(data.explanation);
+      setVerdict(data.verdict);
+      setConfidence(data.confidence);
+      setReasons(data.reasons);
     } catch {
       clearInterval(interval);
-      setExplanation("Request failed");
+      setVerdict("Error");
+      setConfidence("");
+      setReasons(["Request failed"]);
     }
 
     setLoading(false);
@@ -78,7 +84,11 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-black text-white p-8 font-sans">
-      <h1 className="text-6xl font-bold text-center mb-2">VerifyReal ✓</h1>
+
+      <h1 className="text-6xl font-bold text-center mb-2">
+        VerifyReal ✓
+      </h1>
+
       <p className="text-center text-lg text-gray-400 mb-12">
         AI-powered deepfake detection for images & video
       </p>
@@ -98,7 +108,7 @@ export default function Home() {
         {loading ? 'Analyzing...' : 'Get Risk Score'}
       </button>
 
-      {/* Progress bar */}
+      {/* Progress */}
       {loading && (
         <div className="mt-6 max-w-md mx-auto">
           <div className="h-4 bg-gray-700 rounded">
@@ -107,7 +117,9 @@ export default function Home() {
               style={{ width: `${progress}%` }}
             ></div>
           </div>
-          <p className="text-center mt-2 text-sm">Scanning media with AI...</p>
+          <p className="text-center mt-2 text-sm">
+            Scanning media with AI...
+          </p>
         </div>
       )}
 
@@ -115,7 +127,7 @@ export default function Home() {
       {riskScore !== null && (
         <div className="mt-16 text-center max-w-md mx-auto">
 
-          {/* Animated Circle */}
+          {/* Circle */}
           <div className="relative w-48 h-48 mx-auto mb-6">
             <div className="absolute inset-0 rounded-full border-8 border-gray-700"></div>
 
@@ -133,23 +145,39 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Status */}
-          <div className={`text-3xl font-bold ${riskScore > 60 ? 'text-red-500' : 'text-green-500'}`}>
-            {riskScore > 60 ? '⚠️ Likely Deepfake' : '✅ Likely Authentic'}
+          {/* Verdict */}
+          <div className="text-3xl font-bold mb-2">
+            {verdict}
           </div>
 
-          <p className="mt-6 text-lg text-gray-300">{explanation}</p>
+          <div className="text-gray-400 mb-6">
+            {confidence}
+          </div>
 
-          {/* Share button */}
+          {/* Analysis */}
+          <div className="text-left bg-gray-900 p-6 rounded-2xl">
+            <h3 className="text-lg font-semibold mb-3">
+              Analysis
+            </h3>
+
+            <ul className="space-y-2 text-gray-300">
+              {reasons.map((r, i) => (
+                <li key={i}>• {r}</li>
+              ))}
+            </ul>
+          </div>
+
+          {/* Share */}
           <button
             onClick={() => {
-              const text = `VerifyReal result: ${riskScore}% risk`;
+              const text = `VerifyReal: ${riskScore}% risk — ${verdict}`;
               window.open(`https://x.com/intent/tweet?text=${encodeURIComponent(text)}`);
             }}
             className="mt-8 bg-blue-600 px-6 py-3 rounded-xl"
           >
             Share Result
           </button>
+
         </div>
       )}
     </div>
