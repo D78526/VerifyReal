@@ -139,24 +139,41 @@ export default function Home() {
         }
 
         const avg = scores.reduce((a, b) => a + b, 0) / scores.length;
-        const max = Math.max(...scores);
+        const peak = Math.max(...scores);
+        const variance =
+          scores.reduce((a, b) => a + Math.abs(b - avg), 0) / scores.length;
 
-        const finalScore = Math.round((avg * 0.6) + (max * 0.4));
+        let finalScore = avg * 0.4 + peak * 0.6;
+
+        if (peak > 80) {
+          finalScore = peak;
+        }
+
+        if (variance > 25) {
+          finalScore += 10;
+        }
+
+        if (finalScore < 25 && peak > 40) {
+          finalScore = peak * 0.75;
+        }
+
+        finalScore = Math.min(100, Math.round(finalScore));
 
         setResult({
           riskScore: finalScore,
           verdict:
-            finalScore > 75
-              ? "High Risk — Likely AI Generated"
-              : finalScore > 55
-              ? "Moderate Risk — Needs Review"
-              : finalScore > 35
-              ? "Low Confidence Result"
-              : "Low Risk — Likely Authentic",
+            finalScore > 80
+              ? "CRITICAL — AI GENERATED"
+              : finalScore > 60
+              ? "HIGH RISK — Synthetic Media"
+              : finalScore > 40
+              ? "UNCERTAIN — Needs Verification"
+              : "LOW RISK — Likely Real",
           confidence: "Multi-frame AI analysis",
-          reasons: [
-            `Analyzed ${scores.length} frames`,
-            `Peak detection: ${Math.round(max)}%`
+          details: [
+            `Frames analyzed: ${scores.length}`,
+            `Peak anomaly: ${Math.round(peak)}%`,
+            `Consistency: ${Math.round(100 - variance)}%`
           ]
         });
 
@@ -201,7 +218,7 @@ export default function Home() {
       <div className="max-w-2xl mx-auto border border-emerald-900 p-8 rounded-lg">
 
         <h1 className="text-3xl font-bold mb-6">
-          VerifyReal // Final Boss
+          VerifyReal // GOD MODE
         </h1>
 
         <input
@@ -230,7 +247,7 @@ export default function Home() {
             <div className="text-xs opacity-60">{result.confidence}</div>
 
             <div className="mt-3 text-xs space-y-1">
-              {result.reasons?.map((r: string, i: number) => (
+              {result.details?.map((r: string, i: number) => (
                 <div key={i}>• {r}</div>
               ))}
             </div>

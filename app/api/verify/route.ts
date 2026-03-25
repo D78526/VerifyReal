@@ -88,68 +88,56 @@ export async function POST(req: Request) {
     const r1 = extractRisk(m1);
     const r2 = extractRisk(m2);
 
-    // 🔥 FINAL BOSS SCORING
-    let finalRisk = 50;
+    // 🧠 GOD MODE SCORING
+    let signals: number[] = [];
 
-    if (r1 !== null && r2 !== null) {
-      finalRisk = (r1 * 0.6) + (r2 * 0.4);
+    if (r1 !== null) signals.push(r1);
+    if (r2 !== null) signals.push(r2);
 
-      if (r1 < 30 && r2 < 30) {
-        finalRisk *= 0.8;
-      }
+    let avg = signals.length
+      ? signals.reduce((a, b) => a + b, 0) / signals.length
+      : 50;
 
-      if (r1 > 70 || r2 > 70) {
-        finalRisk = Math.max(r1, r2);
-      }
+    let peak = signals.length ? Math.max(...signals) : 50;
+    let spread =
+      signals.length > 1 ? Math.abs(signals[0] - signals[1]) : 0;
 
-      if (Math.abs(r1 - r2) > 40) {
-        finalRisk += 15;
-      }
+    let finalRisk = avg * 0.5 + peak * 0.5;
 
-    } else if (r1 !== null) {
-      finalRisk = r1;
-    } else if (r2 !== null) {
-      finalRisk = r2;
+    if (peak > 75) {
+      finalRisk = peak;
+    }
+
+    if (spread > 40) {
+      finalRisk += 10;
+    }
+
+    if (finalRisk < 25 && peak > 40) {
+      finalRisk = peak * 0.7;
+    }
+
+    if (finalRisk < 30 && avg < 25) {
+      finalRisk *= 0.85;
     }
 
     finalRisk = Math.min(100, Math.round(finalRisk));
 
     let verdict = "";
 
-    if (finalRisk > 75) {
-      verdict = "High Risk — Likely AI Generated";
-    } else if (finalRisk > 55) {
-      verdict = "Moderate Risk — Needs Review";
-    } else if (finalRisk > 35) {
-      verdict = "Low Confidence Result";
+    if (finalRisk > 80) {
+      verdict = "CRITICAL — AI GENERATED";
+    } else if (finalRisk > 60) {
+      verdict = "HIGH RISK — Synthetic Media";
+    } else if (finalRisk > 40) {
+      verdict = "UNCERTAIN — Needs Verification";
     } else {
-      verdict = "Low Risk — Likely Authentic";
-    }
-
-    let reasons: string[] = [];
-
-    if (finalRisk > 75) {
-      reasons.push("High likelihood of AI manipulation");
-      reasons.push("Visual inconsistencies detected");
-    }
-
-    if (finalRisk > 50 && finalRisk <= 75) {
-      reasons.push("Some elements appear artificially generated");
-    }
-
-    if (finalRisk <= 50) {
-      reasons.push("No strong signs of manipulation");
-    }
-
-    if (r1 !== null && r2 !== null && Math.abs(r1 - r2) > 40) {
-      reasons.push("Analysis inconsistency — requires caution");
+      verdict = "LOW RISK — Likely Real";
     }
 
     return NextResponse.json({
       riskScore: finalRisk,
       verdict,
-      confidence: "AI multi-model analysis",
-      reasons
+      confidence: "Multi-model AI analysis"
     });
 
   } catch (err: any) {
